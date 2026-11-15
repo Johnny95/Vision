@@ -1,0 +1,217 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Johnny's Vision Lab</title>
+    <style>
+        body {
+            background: #101820;
+            color: white;
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+
+        video {
+     
+            display: none;
+            width: 90%;
+            max-width: 640px;
+            border: 3px solid lime;
+            border-radius: 12px;
+        }
+
+        canvas {
+                display: block;
+                width: 90%;
+                max-width: 640px;
+                margin: 20px auto;
+                border: 3px solid red;
+                border-radius: 12px;
+            }
+
+
+            .controls {
+    margin: 20px;
+}
+
+button {
+    padding: 12px 20px;
+    margin: 5px;
+    font-size: 16px;
+    cursor: pointer;
+    border: none;
+    border-radius: 8px;
+    background: lime;
+    color: black;
+}
+    </style>
+</head>
+<body>
+    <h1>🔬 Johnny's Vision Lab</h1>
+    <p>Computer Vision Experiments</p>
+
+    <video id="camera" autoplay playsinline muted></video>
+    <canvas id="output"></canvas>
+    <div class="controls">
+    <button onclick="flipCamera()">🔄 Flip Camera</button>    
+    <button onclick="setMode('normal')">Normal</button>
+    <button onclick="setMode('edges')">Edges</button>
+    <button onclick="setMode('red')">Red Detector</button>
+</div>
+
+    <script>
+        let cvReady = false;
+        const canvas = document.getElementById("output");
+        const context = canvas.getContext("2d");
+
+        let mode = "edges";
+        let facingMode = "user";
+        let currentStream = null;
+
+        function setMode(newMode) {
+            mode = newMode;
+            console.log("Camera mode:", mode);
+        }
+
+       
+    
+function drawFrame() {
+    if (video.videoWidth > 0) {
+        context.drawImage(video, 0, 0);
+
+        if (mode !== "normal" && cvReady) {
+            let src = cv.imread(canvas);
+            let gray = new cv.Mat();
+            let blurred = new cv.Mat();
+            let output = new cv.Mat();
+            let hsv = new cv.Mat();
+            let mask1 = new cv.Mat();
+            let mask2 = new cv.Mat();
+
+            if (mode === "edges") {
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+                cv.GaussianBlur(gray, blurred, new cv.Size(15, 15), 0);
+                cv.Canny(blurred, output, 50, 100);
+
+                cv.imshow(canvas, output);
+            }
+
+            else if (mode === "red") {
+                cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
+                cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
+
+                let lower1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, 100, 100, 0]);
+                let upper1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [10, 255, 255, 255]);
+
+                let lower2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [170, 100, 100, 0]);
+                let upper2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [179, 255, 255, 255]);
+
+                cv.inRange(hsv, lower1, upper1, mask1);
+                cv.inRange(hsv, lower2, upper2, mask2);
+
+                cv.bitwise_or(mask1, mask2, output);
+
+                let contours = new cv.MatVector();
+                let hierarchy = new cv.Mat();
+
+                cv.findContours(
+                    output,
+                    contours,
+                    hierarchy,
+                    cv.RETR_TREE,
+                    cv.CHAIN_APPROX_SIMPLE
+                );
+                let green = new cv.Scalar(0, 255, 0, 255);
+
+                cv.drawContours(
+                    src,
+                    contours,
+                    -1,
+                    green,
+                    3
+                );
+
+                cv.imshow(canvas, src);
+                contours.delete();
+                hierarchy.delete();
+
+                lower1.delete();
+                upper1.delete();
+                lower2.delete();
+                upper2.delete();
+}
+
+            src.delete();
+            gray.delete();
+            blurred.delete();
+            output.delete();
+            hsv.delete();
+            mask1.delete();
+            mask2.delete();
+        }
+    }
+
+    requestAnimationFrame(drawFrame);
+}
+
+        
+        const video = document.getElementById("camera");
+
+        
+async function startCamera() {
+    try {
+        // Stop the previous camera stream, if there is one.
+        if (currentStream) {
+            currentStream.getTracks().forEach(track => track.stop());
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: { ideal: facingMode }
+            },
+            audio: false
+        });
+
+        currentStream = stream;
+        video.srcObject = stream;
+
+        await video.play();
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+    } catch (error) {
+        console.error("Camera error:", error);
+        alert(`Camera error: ${error.name}\n${error.message}`);
+    }
+}
+
+async function flipCamera() {
+    facingMode = facingMode === "user"
+        ? "environment"
+        : "user";
+
+    await startCamera();
+}
+
+        startCamera().then(() => {
+    requestAnimationFrame(drawFrame);
+});
+
+        async function initOpenCV() {
+    if (cv instanceof Promise) {
+        cv = await cv;
+    }
+    cvReady = true;
+    console.log("OpenCV is ready!");
+}
+    </script>
+    <script
+    async
+    src="https://docs.opencv.org/4.x/opencv.js"
+    onload="initOpenCV()">
+</script>
+</body>
+</html>
