@@ -63,6 +63,30 @@ button {
 </div>
 
     <script>
+        const gray = new cv.Mat();
+cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+const faces = new cv.RectVector();
+
+faceClassifier.detectMultiScale(gray, faces);
+
+for (let i = 0; i < faces.size(); i++) {
+    const face = faces.get(i);
+
+    cv.rectangle(
+        src,
+        new cv.Point(face.x, face.y),
+        new cv.Point(face.x + face.width, face.y + face.height),
+        [0, 255, 0, 255],
+        3
+    );
+}
+
+gray.delete();
+faces.delete();
+        if (faces.size() > 0) {
+    // Display our warning!
+}
         let cvReady = false;
         const canvas = document.getElementById("output");
         const context = canvas.getContext("2d");
