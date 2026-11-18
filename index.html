@@ -108,6 +108,9 @@
         function setMode(newMode) {
             mode = newMode;
             warning.style.display = "none";
+            faceCount.style.display = newMode === "face"
+            ? "block"
+            : "none";
 
             console.log("Camera mode:", mode);
         }
