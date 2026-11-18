@@ -76,6 +76,8 @@
         
     </div>
 
+    <p id="faceCount">Faces detected: 0</p>
+    
     <div class="controls">
         <button onclick="flipCamera()">🔄 Flip Camera</button>
         <button onclick="setMode('normal')">Normal</button>
@@ -92,6 +94,8 @@
         const context = canvas.getContext("2d");
         const warning = document.getElementById("warning");
         const status = document.getElementById("status");
+
+        const faceCount = document.getElementById("faceCount");
 
         let cvReady = false;
         let faceReady = false;
@@ -235,6 +239,8 @@
                             0,
                             new cv.Size(60, 60)
                         );
+
+                        faceCount.textContent = `Faces detected: ${faces.size()}`;
 
                         for (let i = 0; i < faces.size(); i++) {
                             let face = faces.get(i);
