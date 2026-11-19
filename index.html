@@ -1,13 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport"
-          content="width=device-width, initial-scale=1.0">
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Johnny's Vision Lab</title>
-
     <style>
         body {
             background: #101820;
@@ -15,11 +11,7 @@
             font-family: Arial, sans-serif;
             text-align: center;
         }
-
-        video {
-            display: none;
-        }
-
+        video { display: none; }
         canvas {
             display: block;
             width: 90%;
@@ -28,11 +20,7 @@
             border: 3px solid white;
             border-radius: 12px;
         }
-
-        .controls {
-            margin: 20px;
-        }
-
+        .controls { margin: 20px; }
         button {
             padding: 12px 20px;
             margin: 5px;
@@ -43,46 +31,30 @@
             background: #b1d3f0;
             color: black;
         }
-
-        #status {
-            color: #b1d3f0;
-            font-size: 14px;
-        }
-
-        #warning {
-            display: none;
-            color: #ff4444;
-            font-size: 22px;
-            font-weight: bold;
-            margin: 15px;
-        }
+        #status { color: #b1d3f0; font-size: 14px; }
+        #warning { display: none; color: #ff4444; font-size: 22px; font-weight: bold; margin: 15px; }
+        #faceCount { display: none; }
     </style>
 </head>
-
 <body>
-
     <h1>🔬 Johnny's Vision Lab</h1>
     <p>Computer Vision Experiments</p>
 
     <video id="camera" autoplay playsinline muted></video>
     <canvas id="output"></canvas>
+    <div id="warning"></div>
+    <p id="faceCount">Faces detected: 0</p>
 
-<div id="warning">
-       
-        
-    </div> 
-
-    <p id="faceCount">Faces Detected: 0</p>
-    
     <div class="controls">
         <button onclick="flipCamera()">🔄 Flip Camera</button>
         <button onclick="setMode('normal')">Normal</button>
         <button onclick="setMode('edges')">Edges</button>
         <button onclick="setMode('red')">Red Detector</button>
         <button onclick="setMode('face')">🚨 Face Scanner</button>
+        <button onclick="setMode('objects')">📦 Object Detector</button>
     </div>
 
-    <p id="status">Loading OpenCV...</p>
+    <p id="status">Starting camera and loading models...</p>
 
     <script>
         const video = document.getElementById("camera");
@@ -90,7 +62,6 @@
         const context = canvas.getContext("2d");
         const warning = document.getElementById("warning");
         const status = document.getElementById("status");
-
         const faceCount = document.getElementById("faceCount");
 
         let cvReady = false;
@@ -103,27 +74,57 @@
         let facingMode = "user";
         let currentStream = null;
 
+        let objectModel = null;
+        let objectPredictions = [];
+        let objectBusy = false;
+        let cameraGeneration = 0;
+
         function setMode(newMode) {
             mode = newMode;
             warning.style.display = "none";
-            faceCount.style.display = newMode === "face"
-            ? "block"
-            : "none";
-
+            faceCount.style.display = newMode === "face" ? "block" : "none";
+            objectPredictions = [];
+            if (newMode === "objects") {
+                status.textContent = objectModel ? "Object detector ready!" : "Loading object detector...";
+            } else if (newMode === "face") {
+                status.textContent = faceReady ? "Face detector ready!" : "Loading face detector...";
+            } else {
+                status.textContent = cvReady ? "OpenCV ready!" : "Loading OpenCV...";
+            }
             console.log("Camera mode:", mode);
         }
 
-        function drawFrame() {
-            if (video.videoWidth > 0) {
-                context.drawImage(
-                    video,
-                    0,
-                    0,
-                    canvas.width,
-                    canvas.height
-                );
+        function drawObjects() {
+            context.lineWidth = 4;
+            context.font = "bold 20px Arial";
 
-                if (mode !== "normal" && cvReady) {
+            for (const prediction of objectPredictions) {
+                if (prediction.score < 0.5) continue;
+
+                const [x, y, width, height] = prediction.bbox;
+                const label = `${prediction.class} ${Math.round(prediction.score * 100)}%`;
+
+                context.strokeStyle = "#00ff00";
+                context.strokeRect(x, y, width, height);
+
+                const labelWidth = context.measureText(label).width + 12;
+                const labelY = Math.max(24, y);
+                context.fillStyle = "#00ff00";
+                context.fillRect(x, labelY - 24, labelWidth, 26);
+                context.fillStyle = "#000000";
+                context.fillText(label, x + 6, labelY - 5);
+            }
+        }
+
+        function drawFrame() {
+            if (video.videoWidth > 0 && canvas.width > 0) {
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                if (mode === "objects") {
+                    drawObjects();
+                }
+
+                if (mode !== "normal" && mode !== "objects" && cvReady) {
                     let src = cv.imread(canvas);
                     let gray = new cv.Mat();
                     let blurred = new cv.Mat();
@@ -132,290 +133,169 @@
                     let mask1 = new cv.Mat();
                     let mask2 = new cv.Mat();
 
-                    if (mode === "edges") {
-                        cv.cvtColor(
-                            src, gray, cv.COLOR_RGBA2GRAY
-                        );
+                    try {
+                        if (mode === "edges") {
+                            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+                            cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+                            cv.Canny(blurred, output, 50, 100);
+                            cv.imshow(canvas, output);
+                        } else if (mode === "red") {
+                            cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
+                            cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
 
-                        cv.GaussianBlur(
-                            gray,
-                            blurred,
-                            new cv.Size(5, 5),
-                            0
-                        );
+                            let lower1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, 100, 100, 0]);
+                            let upper1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [10, 255, 255, 255]);
+                            let lower2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [170, 100, 100, 0]);
+                            let upper2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [179, 255, 255, 255]);
+                            let contours = new cv.MatVector();
+                            let hierarchy = new cv.Mat();
 
-                        cv.Canny(
-                            blurred,
-                            output,
-                            50,
-                            100
-                        );
-
-                        cv.imshow(canvas, output);
-                    }
-
-                    else if (mode === "red") {
-                        cv.cvtColor(
-                            src, hsv, cv.COLOR_RGBA2RGB
-                        );
-
-                        cv.cvtColor(
-                            hsv, hsv, cv.COLOR_RGB2HSV
-                        );
-
-                        let lower1 = new cv.Mat(
-                            hsv.rows, hsv.cols, hsv.type(),
-                            [0, 100, 100, 0]
-                        );
-
-                        let upper1 = new cv.Mat(
-                            hsv.rows, hsv.cols, hsv.type(),
-                            [10, 255, 255, 255]
-                        );
-
-                        let lower2 = new cv.Mat(
-                            hsv.rows, hsv.cols, hsv.type(),
-                            [170, 100, 100, 0]
-                        );
-
-                        let upper2 = new cv.Mat(
-                            hsv.rows, hsv.cols, hsv.type(),
-                            [179, 255, 255, 255]
-                        );
-
-                        cv.inRange(
-                            hsv, lower1, upper1, mask1
-                        );
-
-                        cv.inRange(
-                            hsv, lower2, upper2, mask2
-                        );
-
-                        cv.bitwise_or(
-                            mask1, mask2, output
-                        );
-
-                        let contours = new cv.MatVector();
-                        let hierarchy = new cv.Mat();
-
-                        cv.findContours(
-                            output,
-                            contours,
-                            hierarchy,
-                            cv.RETR_TREE,
-                            cv.CHAIN_APPROX_SIMPLE
-                        );
-
-                        cv.drawContours(
-                            src,
-                            contours,
-                            -1,
-                            new cv.Scalar(0, 255, 0, 255),
-                            3
-                        );
-
-                        cv.imshow(canvas, src);
-
-                        contours.delete();
-                        hierarchy.delete();
-
-                        lower1.delete();
-                        upper1.delete();
-                        lower2.delete();
-                        upper2.delete();
-                    }
-
-                    else if (mode === "face" && faceReady) {
-                        cv.cvtColor(
-                            src, gray, cv.COLOR_RGBA2GRAY
-                        );
-
-                        let faces = new cv.RectVector();
-
-                        faceClassifier.detectMultiScale(
-                            gray,
-                            faces,
-                            1.1,
-                            5,
-                            0,
-                            new cv.Size(60, 60)
-                        );
-
-                        if (faces.size() > 0) {
-                            lastFaces = [];
-                        
-                            for (let i = 0; i < faces.size(); i++) {
-                                let face = faces.get(i);
-                        
-                                lastFaces.push({
-                                    x: face.x,
-                                    y: face.y,
-                                    width: face.width,
-                                    height: face.height
-                                });
+                            try {
+                                cv.inRange(hsv, lower1, upper1, mask1);
+                                cv.inRange(hsv, lower2, upper2, mask2);
+                                cv.bitwise_or(mask1, mask2, output);
+                                cv.findContours(output, contours, hierarchy, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE);
+                                cv.drawContours(src, contours, -1, new cv.Scalar(0, 255, 0, 255), 3);
+                                cv.imshow(canvas, src);
+                            } finally {
+                                contours.delete();
+                                hierarchy.delete();
+                                lower1.delete();
+                                upper1.delete();
+                                lower2.delete();
+                                upper2.delete();
                             }
-                        
-                            missedFrames = 0;
-                        } else {
-                            missedFrames++;
-                        
-                            if (missedFrames > 10) {
-                                lastFaces = [];
+                        } else if (mode === "face" && faceReady) {
+                            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+                            let faces = new cv.RectVector();
+                            try {
+                                faceClassifier.detectMultiScale(gray, faces, 1.1, 5, 0, new cv.Size(60, 60));
+
+                                if (faces.size() > 0) {
+                                    lastFaces = [];
+                                    for (let i = 0; i < faces.size(); i++) {
+                                        const face = faces.get(i);
+                                        lastFaces.push({x: face.x, y: face.y, width: face.width, height: face.height});
+                                    }
+                                    missedFrames = 0;
+                                } else {
+                                    missedFrames++;
+                                    if (missedFrames > 10) lastFaces = [];
+                                }
+
+                                faceCount.textContent = `Faces detected: ${lastFaces.length}`;
+                                for (const face of lastFaces) {
+                                    cv.rectangle(src,
+                                        new cv.Point(face.x, face.y),
+                                        new cv.Point(face.x + face.width, face.y + face.height),
+                                        new cv.Scalar(0, 255, 0, 255), 4);
+                                }
+                                cv.imshow(canvas, src);
+                            } finally {
+                                faces.delete();
                             }
                         }
-
-                        
-                        faceCount.textContent =`Faces detected: ${lastFaces.length}`;
-                        
-
-                        for (let i = 0; i < lastFaces.length; i++) {
-                            let face = lastFaces[i];
-
-                            cv.rectangle(
-                                src,
-                                new cv.Point(face.x, face.y),
-                                new cv.Point(
-                                    face.x + face.width,
-                                    face.y + face.height
-                                ),
-                                new cv.Scalar(0, 255, 0, 255),
-                                4
-                            );
-                        }
-
-                        warning.style.display =
-                            faces.size() > 0 ? "block" : "none";
-
-                        cv.imshow(canvas, src);
-
-                        faces.delete();
+                    } finally {
+                        src.delete();
+                        gray.delete();
+                        blurred.delete();
+                        output.delete();
+                        hsv.delete();
+                        mask1.delete();
+                        mask2.delete();
                     }
-
-                    src.delete();
-                    gray.delete();
-                    blurred.delete();
-                    output.delete();
-                    hsv.delete();
-                    mask1.delete();
-                    mask2.delete();
                 }
             }
-
             requestAnimationFrame(drawFrame);
+        }
+
+        async function loadObjectDetector() {
+            try {
+                console.log("Loading object detector...");
+                if (mode === "objects") status.textContent = "Loading object detector...";
+                objectModel = await cocoSsd.load();
+                console.log("Object detector ready!");
+                if (mode === "objects") status.textContent = "Object detector ready!";
+            } catch (error) {
+                console.error("Object detector error:", error);
+                if (mode === "objects") status.textContent = "Object detector failed to load — check console";
+            }
+        }
+
+        async function detectObjects() {
+            if (mode !== "objects" || !objectModel || objectBusy || video.readyState < 2) return;
+            objectBusy = true;
+            const generation = cameraGeneration;
+            try {
+                const predictions = await objectModel.detect(video);
+                if (mode === "objects" && generation === cameraGeneration) {
+                    objectPredictions = predictions;
+                }
+            } catch (error) {
+                console.error("Detection error:", error);
+            } finally {
+                objectBusy = false;
+            }
         }
 
         async function startCamera() {
             try {
+                cameraGeneration++;
+                objectPredictions = [];
                 if (currentStream) {
-                    currentStream.getTracks().forEach(
-                        track => track.stop()
-                    );
+                    currentStream.getTracks().forEach(track => track.stop());
                 }
-
-                const stream =
-                    await navigator.mediaDevices.getUserMedia({
-                        video: {
-                            facingMode: { ideal: facingMode }
-                        },
-                        audio: false
-                    });
-
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { ideal: facingMode } },
+                    audio: false
+                });
                 currentStream = stream;
                 video.srcObject = stream;
-
                 await video.play();
-
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
-
             } catch (error) {
                 console.error("Camera error:", error);
-
-                alert(
-                    `Camera error: ${error.name}\n${error.message}`
-                );
+                alert(`Camera error: ${error.name}\n${error.message}`);
             }
         }
 
         async function flipCamera() {
-            facingMode = facingMode === "user"
-                ? "environment"
-                : "user";
-
+            facingMode = facingMode === "user" ? "environment" : "user";
             await startCamera();
         }
 
         async function initOpenCV() {
             try {
-                if (cv instanceof Promise) {
-                    cv = await cv;
-                }
-
+                if (cv instanceof Promise) cv = await cv;
                 cvReady = true;
-                status.textContent = "OpenCV ready!";
+                if (mode !== "objects") status.textContent = "OpenCV ready!";
                 console.log("OpenCV is ready!");
 
-                const response = await fetch(
-                    "haarcascade_frontalface_default.xml"
-                );
-
-                if (!response.ok) {
-                    throw new Error(
-                        "Could not download face classifier"
-                    );
-                }
-
-                const data = new Uint8Array(
-                    await response.arrayBuffer()
-                );
-
-                cv.FS_createDataFile(
-                    "/",
-                    "haarcascade_frontalface_default.xml",
-                    data,
-                    true,
-                    false,
-                    false
-                );
+                const response = await fetch("haarcascade_frontalface_default.xml");
+                if (!response.ok) throw new Error("Could not download face classifier");
+                const data = new Uint8Array(await response.arrayBuffer());
+                cv.FS_createDataFile("/", "haarcascade_frontalface_default.xml", data, true, false, false);
 
                 faceClassifier = new cv.CascadeClassifier();
-
-                const loaded = faceClassifier.load(
-                    "haarcascade_frontalface_default.xml"
-                );
-
-                if (!loaded) {
-                    throw new Error(
-                        "Face classifier failed to load"
-                    );
+                if (!faceClassifier.load("haarcascade_frontalface_default.xml")) {
+                    throw new Error("Face classifier failed to load");
                 }
-
                 faceReady = true;
-                status.textContent = "Face detector ready!";
-
+                if (mode === "face") status.textContent = "Face detector ready!";
                 console.log("Face detector ready!");
-
             } catch (error) {
-                console.error(
-                    "OpenCV initialization error:",
-                    error
-                );
-
-                status.textContent =
-                    "Face detector unavailable — check console";
+                console.error("OpenCV initialization error:", error);
+                if (mode !== "objects") status.textContent = "Face detector unavailable — check console";
             }
         }
 
-        startCamera().then(() => {
-            requestAnimationFrame(drawFrame);
-        });
+        startCamera().then(() => requestAnimationFrame(drawFrame));
+        setInterval(detectObjects, 250);
     </script>
 
-    <script
-        async
-        src="https://docs.opencv.org/4.x/opencv.js"
-        onload="initOpenCV()">
-    </script>
-
+    <script async src="https://docs.opencv.org/4.x/opencv.js" onload="initOpenCV()"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js" onload="loadObjectDetector()"></script>
 </body>
 </html>
