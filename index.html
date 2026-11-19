@@ -72,7 +72,7 @@
         
     </div> 
 
-    <p id="faceCount">Faces detected: 0</p>
+    <p id="faceCount">Faces Detected: 0</p>
     
     <div class="controls">
         <button onclick="flipCamera()">🔄 Flip Camera</button>
@@ -259,7 +259,7 @@
                         } else {
                             missedFrames++;
                         
-                            if (missedFrames > 5) {
+                            if (missedFrames > 10) {
                                 lastFaces = [];
                             }
                         }
