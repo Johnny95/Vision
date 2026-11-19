@@ -96,6 +96,8 @@
         let cvReady = false;
         let faceReady = false;
         let faceClassifier = null;
+        let lastFaces = [];
+        let missedFrames = 0;
 
         let mode = "edges";
         let facingMode = "user";
@@ -239,10 +241,35 @@
                             new cv.Size(60, 60)
                         );
 
-                        faceCount.textContent = `Faces detected: ${faces.size()}`;
+                        if (faces.size() > 0) {
+                            lastFaces = [];
+                        
+                            for (let i = 0; i < faces.size(); i++) {
+                                let face = faces.get(i);
+                        
+                                lastFaces.push({
+                                    x: face.x,
+                                    y: face.y,
+                                    width: face.width,
+                                    height: face.height
+                                });
+                            }
+                        
+                            missedFrames = 0;
+                        } else {
+                            missedFrames++;
+                        
+                            if (missedFrames > 5) {
+                                lastFaces = [];
+                            }
+                        }
 
-                        for (let i = 0; i < faces.size(); i++) {
-                            let face = faces.get(i);
+                        
+                        faceCount.textContent =`Faces detected: ${lastFaces.length}`;
+                        
+
+                        for (let i = 0; i < lastFaces.length; i++) {
+                            let face = lastFaces[i];
 
                             cv.rectangle(
                                 src,
